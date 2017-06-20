@@ -559,8 +559,7 @@ public class PomHelper
                 final String elementName = event.asStartElement().getName().getLocalPart();
                 path = path + "/" + elementName;
 
-//                System.out.println("Start: " + elementName);
-//                System.out.println("Start path: " + path);
+                startPath(path);
 
                 if (matchScopeRegex.matcher(path).matches()) {
                     // we're in a new match scope
@@ -582,49 +581,45 @@ public class PomHelper
                             final String pomArtifactId = pom.peek().asCharacters().getData();
                             haveArtifactId = artifactId.equals(evaluate(pomArtifactId.trim(), implicitProperties));
                         } else if ("version".equals(elementName)) {
-                            pom.mark(0);
-                            pom.clearMark(1);
+                            mark(pom, 0);
+                            clearMark(pom, 1);
                         }
                     } else if (pom.hasMark(2) && !pom.hasMark(1) && !pom.hasMark(0)) {
-                        pom.mark(1);
-//                        System.out.println("Marked (1): " + pom.getMarkVerbatim(1));
+                        mark(pom, 1);
                     }
                 }
             }
             if ( event.isEndElement() )
             {
-//                System.out.println("End path: " + path);
+                endPath(path);
                 final String elementName = event.asEndElement().getName().getLocalPart();
-//                System.out.println("End: " + elementName);
 
                 if ( matchTargetRegex.matcher( path ).matches() ) {
                     if ("version".equals(elementName) ) {
-                        pom.mark(1);
-                        String compressedPomVersion = StringUtils.deleteWhitespace(pom.getBetween(0, 1).trim());
-                        String compressedOldVersion = StringUtils.deleteWhitespace(oldVersion);
+                        mark(pom, 1);
 
-                        try {
-                            haveOldVersion = isVersionOverlap(compressedOldVersion, compressedPomVersion);
-                        } catch (InvalidVersionSpecificationException e) {
-                            // fall back to string comparison
-                            haveOldVersion = compressedOldVersion.equals(compressedPomVersion);
-                        }
-                    } else if (("groupId".equals(elementName) || "artifactId".equals(elementName)) &&
-                            !pom.hasMark(0)) {
-                        pom.mark(2);
-//                        System.out.println("Marked (2): " + pom.getMarkVerbatim(2));
-                        pom.clearMark(1);
+//                        String compressedPomVersion = StringUtils.deleteWhitespace(pom.getBetween(0, 1).trim());
+//                        String compressedOldVersion = StringUtils.deleteWhitespace(oldVersion);
+
+//                        try {
+//                            haveOldVersion = isVersionOverlap(compressedOldVersion, compressedPomVersion);
+//                        } catch (InvalidVersionSpecificationException e) {
+//                            // fall back to string comparison
+//                            haveOldVersion = compressedOldVersion.equals(compressedPomVersion);
+//                        }
+                    } else if (("groupId".equals(elementName) || "artifactId".equals(elementName)) && !pom.hasMark(0)) {
+                        mark(pom, 2);
+                        clearMark(pom, 1);
                     }
                 } else if ( matchScopeRegex.matcher( path ).matches() ) {
                     if ( inMatchScope && haveGroupId && haveArtifactId )
                     {
-                        if (pom.hasMark( 0 ) && pom.hasMark( 1 ) && haveOldVersion) {
+                        if (pom.hasMark( 0 ) && pom.hasMark( 1 )) {
                             pom.replaceBetween(0, 1, newVersion);
                         } else if (pom.hasMark(2)) {
 //                            System.out.println("Attempting to add version: " + groupId + ":" + artifactId + ":" + newVersion);
                             if (!pom.hasMark(1)) {
-                                pom.mark(1);
-//                                System.out.println("Marked (1): " + pom.getMarkVerbatim(1));
+                                mark(pom, 1);
                             }
                             String trailingIndent = "</dependency>".equals(pom.getMarkVerbatim(1)) ?
                                     "        " : "            ";
@@ -644,6 +639,35 @@ public class PomHelper
             }
         }
         return madeReplacement;
+    }
+
+    private static final boolean markDebug = false;
+    private static final boolean pathDebug = false;
+
+    private static void mark(ModifiedPomXMLEventReader pom, int markIndex) {
+        pom.mark(markIndex);
+        if (markDebug) {
+            System.out.println("Marked (" + markIndex + "): " + pom.getMarkVerbatim(markIndex));
+        }
+    }
+
+    private static void clearMark(ModifiedPomXMLEventReader pom, int markIndex) {
+        pom.clearMark(markIndex);
+        if (markDebug) {
+            System.out.println("Cleared mark (" + markIndex + ").");
+        }
+    }
+
+    private static void startPath(String path) {
+        if (pathDebug) {
+            System.out.println("Start path: " + path);
+        }
+    }
+
+    private static void endPath(String path) {
+        if (pathDebug) {
+            System.out.println("End path:   " + path);
+        }
     }
 
     /**

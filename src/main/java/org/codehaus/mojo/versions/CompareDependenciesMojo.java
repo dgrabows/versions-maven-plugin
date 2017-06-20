@@ -207,6 +207,7 @@ public class CompareDependenciesMojo
                 continue;
             }
 
+            getLog().info( "Checking " + toString( dep ) );
             if ( PomHelper.setDependencyVersion( pom, dep.getGroupId(), dep.getArtifactId(),
                                                  dep.getVersion(), dep.getVersion(),
                                                  getProject().getModel() ) ) {
