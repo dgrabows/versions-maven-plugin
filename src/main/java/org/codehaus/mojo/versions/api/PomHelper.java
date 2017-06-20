@@ -76,6 +76,7 @@ import java.util.regex.Pattern;
  * @author Stephen Connolly
  * @since 1.0-alpha-3
  */
+@SuppressWarnings("Since15")
 public class PomHelper
 {
     public static final String APACHE_MAVEN_PLUGINS_GROUPID = "org.apache.maven.plugins";
@@ -558,66 +559,82 @@ public class PomHelper
                 final String elementName = event.asStartElement().getName().getLocalPart();
                 path = path + "/" + elementName;
 
-                if ( matchScopeRegex.matcher( path ).matches() )
-                {
+//                System.out.println("Start: " + elementName);
+//                System.out.println("Start path: " + path);
+
+                if (matchScopeRegex.matcher(path).matches()) {
                     // we're in a new match scope
                     // reset any previous partial matches
                     inMatchScope = true;
-                    pom.clearMark( 0 );
-                    pom.clearMark( 1 );
+                    pom.clearMark(0);
+                    pom.clearMark(1);
+                    pom.clearMark(2);
 
                     haveGroupId = false;
                     haveArtifactId = false;
                     haveOldVersion = false;
-                }
-                else if ( inMatchScope && matchTargetRegex.matcher( path ).matches() )
-                {
-                    if ( "groupId".equals( elementName ) )
-                    {
-                        haveGroupId = groupId.equals( evaluate( pom.getElementText().trim(), implicitProperties ) );
-                        path = stack.pop();
-                    }
-                    else if ( "artifactId".equals( elementName ) )
-                    {
-                        haveArtifactId =
-                            artifactId.equals( evaluate( pom.getElementText().trim(), implicitProperties ) );
-                        path = stack.pop();
-                    }
-                    else if ( "version".equals( elementName ) )
-                    {
-                        pom.mark( 0 );
+                } else if (inMatchScope) {
+                    if (matchTargetRegex.matcher(path).matches()) {
+                        if ("groupId".equals(elementName)) {
+                            final String pomGroupId = pom.peek().asCharacters().getData();
+                            haveGroupId = groupId.equals(evaluate(pomGroupId.trim(), implicitProperties));
+                        } else if ("artifactId".equals(elementName)) {
+                            final String pomArtifactId = pom.peek().asCharacters().getData();
+                            haveArtifactId = artifactId.equals(evaluate(pomArtifactId.trim(), implicitProperties));
+                        } else if ("version".equals(elementName)) {
+                            pom.mark(0);
+                            pom.clearMark(1);
+                        }
+                    } else if (pom.hasMark(2) && !pom.hasMark(1) && !pom.hasMark(0)) {
+                        pom.mark(1);
+//                        System.out.println("Marked (1): " + pom.getMarkVerbatim(1));
                     }
                 }
             }
             if ( event.isEndElement() )
             {
-                if ( matchTargetRegex.matcher( path ).matches()
-                    && "version".equals( event.asEndElement().getName().getLocalPart() ) )
-                {
-                    pom.mark( 1 );
-                    String compressedPomVersion = StringUtils.deleteWhitespace( pom.getBetween( 0, 1 ).trim() );
-                    String compressedOldVersion = StringUtils.deleteWhitespace( oldVersion );
+//                System.out.println("End path: " + path);
+                final String elementName = event.asEndElement().getName().getLocalPart();
+//                System.out.println("End: " + elementName);
 
-                    try
-                    {
-                        haveOldVersion = isVersionOverlap( compressedOldVersion, compressedPomVersion );
+                if ( matchTargetRegex.matcher( path ).matches() ) {
+                    if ("version".equals(elementName) ) {
+                        pom.mark(1);
+                        String compressedPomVersion = StringUtils.deleteWhitespace(pom.getBetween(0, 1).trim());
+                        String compressedOldVersion = StringUtils.deleteWhitespace(oldVersion);
+
+                        try {
+                            haveOldVersion = isVersionOverlap(compressedOldVersion, compressedPomVersion);
+                        } catch (InvalidVersionSpecificationException e) {
+                            // fall back to string comparison
+                            haveOldVersion = compressedOldVersion.equals(compressedPomVersion);
+                        }
+                    } else if (("groupId".equals(elementName) || "artifactId".equals(elementName)) &&
+                            !pom.hasMark(0)) {
+                        pom.mark(2);
+//                        System.out.println("Marked (2): " + pom.getMarkVerbatim(2));
+                        pom.clearMark(1);
                     }
-                    catch ( InvalidVersionSpecificationException e )
+                } else if ( matchScopeRegex.matcher( path ).matches() ) {
+                    if ( inMatchScope && haveGroupId && haveArtifactId )
                     {
-                        // fall back to string comparison
-                        haveOldVersion = compressedOldVersion.equals( compressedPomVersion );
-                    }
-                }
-                else if ( matchScopeRegex.matcher( path ).matches() )
-                {
-                    if ( inMatchScope && pom.hasMark( 0 ) && pom.hasMark( 1 ) && haveGroupId && haveArtifactId
-                        && haveOldVersion )
-                    {
-                        pom.replaceBetween( 0, 1, newVersion );
+                        if (pom.hasMark( 0 ) && pom.hasMark( 1 ) && haveOldVersion) {
+                            pom.replaceBetween(0, 1, newVersion);
+                        } else if (pom.hasMark(2)) {
+//                            System.out.println("Attempting to add version: " + groupId + ":" + artifactId + ":" + newVersion);
+                            if (!pom.hasMark(1)) {
+                                pom.mark(1);
+//                                System.out.println("Marked (1): " + pom.getMarkVerbatim(1));
+                            }
+                            String trailingIndent = "</dependency>".equals(pom.getMarkVerbatim(1)) ?
+                                    "        " : "            ";
+                            pom.replaceBetween(2, 1, "\n            <version>" + newVersion + "</version>\n" + trailingIndent);
+                        }
                         madeReplacement = true;
                     }
                     pom.clearMark( 0 );
                     pom.clearMark( 1 );
+                    pom.clearMark( 2 );
                     haveArtifactId = false;
                     haveGroupId = false;
                     haveOldVersion = false;

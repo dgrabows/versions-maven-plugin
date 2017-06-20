@@ -52,6 +52,7 @@ import org.codehaus.mojo.versions.rewriting.ModifiedPomXMLEventReader;
  * @author Paul Gier
  * @since 1.3
  */
+@SuppressWarnings("Since15")
 @Mojo( name = "compare-dependencies", requiresProject = true, requiresDirectInvocation = true )
 public class CompareDependenciesMojo
     extends AbstractVersionsDependencyUpdaterMojo
@@ -68,19 +69,19 @@ public class CompareDependenciesMojo
      * The groupId, artifactId, and version of the remote project (POM) to which we are comparing. This should be in the
      * form "groupId:artifactId:version"
      */
-    @Parameter( property = "remotePom", required = true )
+    @Parameter( property = "remotePom" )
     protected String remotePom;
 
     /**
      * Ignore the list of remote dependencies and only compare the remote dependencyManagement
      */
-    @Parameter( property = "ignoreRemoteDependencies", defaultValue = "false" )
+    @Parameter( property = "ignoreRemoteDependencies", defaultValue = "true" )
     protected boolean ignoreRemoteDependencies;
 
     /**
      * Ignore the remote dependency management and only check against the actual dependencies of the remote project
      */
-    @Parameter( property = "ignoreRemoteDependencyManagement", defaultValue = "false" )
+    @Parameter( property = "ignoreRemoteDependencyManagement", defaultValue = "true" )
     protected boolean ignoreRemoteDependencyManagement;
 
     /**
@@ -128,54 +129,9 @@ public class CompareDependenciesMojo
     protected void update( ModifiedPomXMLEventReader pom )
         throws MojoExecutionException, MojoFailureException, XMLStreamException
     {
-        if ( this.ignoreRemoteDependencies && this.ignoreRemoteDependencyManagement )
-        {
-            throw new MojoFailureException( " ignoreRemoteDependencies and ignoreRemoteDependencyManagement"
-                + "are both set to true.  At least one of these needs to be false " );
-        }
-
         if ( updateDependencies )
         {
             reportMode = false;
-        }
-
-        String[] remotePomParts = this.remotePom.split( ":" );
-        if ( remotePomParts.length != 3 )
-        {
-            throw new MojoFailureException( " Invalid format for remotePom: " + remotePom );
-        }
-        String rGroupId = remotePomParts[0];
-        String rArtifactId = remotePomParts[1];
-        String rVersion = remotePomParts[2];
-
-        Dependency remoteDependency = new Dependency();
-        remoteDependency.setGroupId( rGroupId );
-        remoteDependency.setArtifactId( rArtifactId );
-        remoteDependency.setVersion( rVersion );
-
-        Artifact remoteArtifact = this.toArtifact( remoteDependency );
-        MavenProject remoteMavenProject = null;
-        try
-        {
-            remoteMavenProject =
-                mavenProjectBuilder.buildFromRepository( remoteArtifact, remoteArtifactRepositories, localRepository );
-        }
-        catch ( ProjectBuildingException e )
-        {
-            throw new MojoExecutionException( "Unable to build remote project " + remoteArtifact, e );
-        }
-
-        Map<String, Dependency> remoteDepsMap = new HashMap<String, Dependency>();
-        if ( !ignoreRemoteDependencyManagement )
-        {
-            List<Dependency> remoteProjectDepMgmtDeps = ( remoteMavenProject.getDependencyManagement() == null ) ? null
-                            : remoteMavenProject.getDependencyManagement().getDependencies();
-            mapDependencies( remoteDepsMap, remoteProjectDepMgmtDeps );
-        }
-        if ( !ignoreRemoteDependencies )
-        {
-            List<Dependency> remoteProjectDeps = remoteMavenProject.getDependencies();
-            mapDependencies( remoteDepsMap, remoteProjectDeps );
         }
 
         List<String> totalDiffs = new ArrayList<String>();
@@ -183,21 +139,21 @@ public class CompareDependenciesMojo
         if ( getProject().getDependencyManagement() != null && isProcessingDependencyManagement() )
         {
             List<String> depManDiffs =
-                compareVersions( pom, getProject().getDependencyManagement().getDependencies(), remoteDepsMap );
+                compareVersions( pom, getProject().getDependencyManagement().getDependencies() );
             totalDiffs.addAll( depManDiffs );
         }
         if ( getProject().getDependencies() != null && isProcessingDependencies() )
         {
-            List<String> depDiffs = compareVersions( pom, getProject().getDependencies(), remoteDepsMap );
+            List<String> depDiffs = compareVersions( pom, getProject().getDependencies() );
             totalDiffs.addAll( depDiffs );
         }
-        if ( updatePropertyVersions )
-        {
-            Map<Property, PropertyVersions> versionProperties =
-                this.getHelper().getVersionPropertiesMap( getProject(), null, null, null, true );
-            List<String> diff = updatePropertyVersions( pom, versionProperties, remoteDepsMap );
-            propertyDiffs.addAll( diff );
-        }
+//        if ( updatePropertyVersions )
+//        {
+//            Map<Property, PropertyVersions> versionProperties =
+//                this.getHelper().getVersionPropertiesMap( getProject(), null, null, null, true );
+//            List<String> diff = updatePropertyVersions( pom, versionProperties, remoteDepsMap );
+//            propertyDiffs.addAll( diff );
+//        }
 
         if ( reportMode )
         {
@@ -239,8 +195,7 @@ public class CompareDependenciesMojo
      *
      * @throws XMLStreamException
      */
-    private List<String> compareVersions( ModifiedPomXMLEventReader pom, List<Dependency> dependencies,
-                                          Map<String, Dependency> remoteDependencies )
+    private List<String> compareVersions( ModifiedPomXMLEventReader pom, List<Dependency> dependencies )
         throws MojoExecutionException, XMLStreamException
     {
         List<String> updates = new ArrayList<String>();
@@ -252,27 +207,10 @@ public class CompareDependenciesMojo
                 continue;
             }
 
-            Dependency remoteDep = remoteDependencies.get( dep.getManagementKey() );
-            if ( remoteDep != null )
-            {
-                String remoteVersion = remoteDep.getVersion();
-
-                if ( !dep.getVersion().equals( remoteVersion ) )
-                {
-                    StringBuilder buf = writeDependencyDiffMessage( dep, remoteVersion );
-                    updates.add( buf.toString() );
-                    if ( !reportMode )
-                    {
-                        if ( PomHelper.setDependencyVersion( pom, dep.getGroupId(), dep.getArtifactId(),
-                                                             dep.getVersion(), remoteVersion,
-                                                             getProject().getModel() ) )
-                        {
-                            getLog().info( "Updated " + toString( dep ) + " to version " + remoteVersion );
-                        }
-                    }
-
-                }
-
+            if ( PomHelper.setDependencyVersion( pom, dep.getGroupId(), dep.getArtifactId(),
+                                                 dep.getVersion(), dep.getVersion(),
+                                                 getProject().getModel() ) ) {
+                getLog().info( "Wrote version " + dep.getVersion() + " for " + toString( dep ) );
             }
         }
 
